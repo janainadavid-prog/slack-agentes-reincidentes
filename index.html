@@ -84,23 +84,22 @@
 </div>
 
 <script>
-// =============================================
-// DADOS — substituídos pelo Apps Script na versão final
-// Para teste no GitHub Pages usamos dados fixos
-// =============================================
 const DADOS_INJETADOS = {
   supervisor:  "janaina.david@ifood.com.br",
   mes:         "03/2026",
   campanha_id: "2026-03",
   token:       "teste-token-123",
   agentes: [
-    { username: "ana.silva",    nome: "Ana Silva",          celula: "CX | Chat | Pedidos",     indicador: "CSAT",      classificacao: "2M",  metrica: "68%" },
-    { username: "joao.lima",    nome: "João Lima",           celula: "CX | Voz | Pedidos",      indicador: "QUALIDADE", classificacao: "3M",  metrica: "71%" },
-    { username: "pedro.santos", nome: "Pedro Santos",        celula: "CX | Chat | Pós Entrega", indicador: "SCORE IVY", classificacao: "2M",  metrica: "64"  },
-    { username: "maria.costa",  nome: "Maria Costa",         celula: "CX | Voz | Pós Entrega",  indicador: "MÚLTIPLOS", classificacao: "3M+", metrica: "—"   },
-    { username: "carlos.souza", nome: "Carlos Souza",        celula: "CX | Chat | Pedidos",     indicador: "MÚLTIPLOS", classificacao: "3M",  metrica: "—"   }
+    { username: "ana.silva",    nome: "Ana Silva",    celula: "CX | Chat | Pedidos",     indicador: "CSAT",      classificacao: "2M",  metrica: "68%" },
+    { username: "joao.lima",    nome: "João Lima",    celula: "CX | Voz | Pedidos",      indicador: "QUALIDADE", classificacao: "3M",  metrica: "71%" },
+    { username: "pedro.santos", nome: "Pedro Santos", celula: "CX | Chat | Pós Entrega", indicador: "SCORE IVY", classificacao: "2M",  metrica: "64"  },
+    { username: "maria.costa",  nome: "Maria Costa",  celula: "CX | Voz | Pós Entrega",  indicador: "MÚLTIPLOS", classificacao: "3M+", metrica: "—"   },
+    { username: "carlos.souza", nome: "Carlos Souza", celula: "CX | Chat | Pedidos",     indicador: "MÚLTIPLOS", classificacao: "3M",  metrica: "—"   }
   ]
 };
+
+const GITHUB_PAT  = "GITHUB_PAT_PLACEHOLDER";
+const GITHUB_REPO = "janainadavid-prog/slack-agentes-reincidentes";
 
 const ACOES = [
   { id: 0, nome: "— Selecione —" },
@@ -145,8 +144,8 @@ function renderizarFormulario(dados) {
 
   var ordemGrupos = ["CSAT","QUALIDADE","SCORE IVY","MÚLTIPLOS"];
   var classGrupo  = { "CSAT":"csat","QUALIDADE":"qualidade","SCORE IVY":"score","MÚLTIPLOS":"multiplos" };
-
   var html = "";
+
   ordemGrupos.forEach(function(indicador) {
     if (!grupos[indicador]) return;
     var agentes = grupos[indicador];
@@ -158,12 +157,10 @@ function renderizarFormulario(dados) {
     html += '<th>' + (indicador === "MÚLTIPLOS" ? "INDICADORES" : indicador) + '</th>';
     html += '<th style="min-width:300px">AÇÃO</th>';
     html += '</tr></thead><tbody>';
-
     agentes.forEach(function(ag) {
       var tagClass     = ag.classificacao === "2M" ? "tag-2m" : ag.classificacao === "3M+" ? "tag-3m2" : "tag-3m";
       var val          = parseFloat(ag.metrica);
       var metricaClass = !isNaN(val) ? (val < 70 ? "baixo" : "medio") : "";
-
       html += '<tr>';
       html += '<td class="analista">' + ag.nome + '</td>';
       html += '<td class="celula">'   + ag.celula + '</td>';
@@ -175,7 +172,6 @@ function renderizarFormulario(dados) {
       });
       html += '</select></td></tr>';
     });
-
     html += '</tbody></table></div>';
   });
 
@@ -234,18 +230,33 @@ function validarEnviar() {
     selections:    selections
   };
 
-  // =============================================
-  // SUBMISSÃO — a ser configurada
-  // Por agora mostra sucesso para teste visual
-  // =============================================
-  console.log("Payload:", JSON.stringify(payload, null, 2));
-
-  setTimeout(function() {
-    document.getElementById("conteudo").style.display   = "none";
-    document.getElementById("footer-bar").style.display = "none";
-    document.getElementById("alerta").style.display     = "none";
-    document.getElementById("sucesso").style.display    = "block";
-  }, 1500);
+  fetch("https://api.github.com/repos/" + GITHUB_REPO + "/dispatches", {
+    method: "POST",
+    headers: {
+      "Authorization": "token " + GITHUB_PAT,
+      "Accept":        "application/vnd.github.v3+json",
+      "Content-Type":  "application/json"
+    },
+    body: JSON.stringify({
+      event_type:     "reincidencia_submission",
+      client_payload: payload
+    })
+  })
+  .then(function(res) {
+    if (res.status === 204) {
+      document.getElementById("conteudo").style.display   = "none";
+      document.getElementById("footer-bar").style.display = "none";
+      document.getElementById("alerta").style.display     = "none";
+      document.getElementById("sucesso").style.display    = "block";
+    } else {
+      throw new Error("Status: " + res.status);
+    }
+  })
+  .catch(function() {
+    btn.textContent = "Enviar final";
+    btn.disabled    = false;
+    alert("Erro ao enviar. Tente novamente.");
+  });
 }
 
 window.onload = function() { renderizarFormulario(DADOS_INJETADOS); };
