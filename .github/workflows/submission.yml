@@ -1,0 +1,23 @@
+name: Processar Submissão Reincidência
+
+on:
+  repository_dispatch:
+    types: [reincidencia_submission]
+
+jobs:
+  salvar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Salvar submissão como JSON
+        run: |
+          mkdir -p submissions
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          FILENAME="submissions/${TIMESTAMP}_${{ github.event.client_payload.campanha_id }}.json"
+          echo '${{ toJson(github.event.client_payload) }}' > "$FILENAME"
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add .
+          git commit -m "Submissão: $FILENAME"
+          git push
