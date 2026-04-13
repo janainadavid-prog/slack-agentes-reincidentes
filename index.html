@@ -47,6 +47,16 @@
     .btn-enviar:disabled { background: #97a0af; cursor: not-allowed; }
     .alerta { display: none; background: #FFEBE6; border: 1.5px solid #FF5630; border-radius: 6px; padding: 10px 16px; font-size: 13px; color: #BF2600; margin: 8px 32px; }
     .alerta.show { display: block; }
+    .tela-central { text-align: center; padding: 80px 20px; }
+    .tela-central .icon { font-size: 72px; margin-bottom: 24px; }
+    .tela-central h2 { font-size: 24px; color: #172b4d; margin-bottom: 12px; }
+    .tela-central p { font-size: 15px; color: #5e6c84; line-height: 1.8; max-width: 460px; margin: 0 auto; }
+    @media (max-width: 768px) {
+      .header { flex-direction: column; gap: 10px; align-items: flex-start; }
+      .header-meta { flex-wrap: wrap; gap: 12px; }
+      .select-acao { min-width: 200px; }
+      td { font-size: 12px; padding: 10px 8px; }
+    }
   </style>
 </head>
 <body>
@@ -65,18 +75,9 @@
 
 <div class="container" id="conteudo"></div>
 
-<div id="sucesso" style="display:none;text-align:center;padding:80px 20px">
-  <div style="font-size:72px;margin-bottom:24px">✅</div>
-  <h2 style="color:#172b4d;font-size:24px;margin-bottom:12px">Enviado com sucesso!</h2>
-  <p style="color:#5e6c84;font-size:15px;line-height:1.8;max-width:460px;margin:0 auto">
-    Suas respostas foram registradas.<br/>
-    Você já pode fechar esta página.
-  </p>
-</div>
-
 <div class="alerta" id="alerta">⚠️ Selecione uma ação para todos os agentes antes de enviar.</div>
 
-<div class="footer" id="footer-bar">
+<div class="footer" id="footer-bar" style="display:none">
   <div class="footer-info">
     <span id="footer-preenchidos">0</span> de <span id="footer-total">0</span> agentes preenchidos
   </div>
@@ -84,24 +85,10 @@
 </div>
 
 <script>
-const DADOS_INJETADOS = {
-  supervisor:  "janaina.david@ifood.com.br",
-  mes:         "03/2026",
-  campanha_id: "2026-03",
-  token:       "teste-token-123",
-  agentes: [
-    { username: "ana.silva",    nome: "Ana Silva",    celula: "CX | Chat | Pedidos",     indicador: "CSAT",      classificacao: "2M",  metrica: "68%" },
-    { username: "joao.lima",    nome: "João Lima",    celula: "CX | Voz | Pedidos",      indicador: "QUALIDADE", classificacao: "3M",  metrica: "71%" },
-    { username: "pedro.santos", nome: "Pedro Santos", celula: "CX | Chat | Pós Entrega", indicador: "SCORE IVY", classificacao: "2M",  metrica: "64"  },
-    { username: "maria.costa",  nome: "Maria Costa",  celula: "CX | Voz | Pós Entrega",  indicador: "MÚLTIPLOS", classificacao: "3M+", metrica: "—"   },
-    { username: "carlos.souza", nome: "Carlos Souza", celula: "CX | Chat | Pedidos",     indicador: "MÚLTIPLOS", classificacao: "3M",  metrica: "—"   }
-  ]
-};
-
-const GITHUB_PAT  = "GITHUB_PAT_PLACEHOLDER";
-const GITHUB_REPO = "janainadavid-prog/slack-agentes-reincidentes";
-
-const ACOES = [
+// =============================================
+// AÇÕES DISPONÍVEIS
+// =============================================
+var ACOES = [
   { id: 0, nome: "— Selecione —" },
   { id: 1, nome: "ACOMPANHAMENTO PRESENCIAL SUPERVISOR - CANCELAMENTO DE H.O" },
   { id: 2, nome: "DESLIGAMENTO" },
@@ -114,6 +101,11 @@ const ACOES = [
   { id: 9, nome: "AGENTE NÃO É REINCIDENTE ( ABERTURA DE CHAMADO)" }
 ];
 
+var DADOS_INJETADOS = null;
+
+// =============================================
+// HELPERS
+// =============================================
 function capitalizeFirst(s) {
   var t = (s || '').toString().trim();
   return t ? t.charAt(0).toUpperCase() + t.slice(1).toLowerCase() : '';
@@ -130,63 +122,122 @@ function firstNameFromEmailOrName(s) {
   return capitalizeFirst(v.split(/\s+/)[0] || v);
 }
 
+// =============================================
+// LÊ DADOS DO URL + VERIFICA JÁ RESPONDEU
+// =============================================
+function lerDados() {
+  var urlParams = new URLSearchParams(window.location.search);
+  var encoded   = urlParams.get('d') || window.location.hash.replace('#', '');
+  if (!encoded) return null;
+
+  try {
+    var standard = encoded.replace(/-/g, '+').replace(/_/g, '/');
+    while (standard.length % 4 !== 0) { standard += '='; }
+
+    var binaryStr = atob(standard);
+    var text;
+    try {
+      var bytes = new Uint8Array(binaryStr.length);
+      for (var i = 0; i < binaryStr.length; i++) { bytes[i] = binaryStr.charCodeAt(i); }
+      text = new TextDecoder('utf-8').decode(bytes);
+    } catch(e) {
+      text = decodeURIComponent(escape(binaryStr));
+    }
+
+    var dados = JSON.parse(text);
+
+    var tokensUsados = JSON.parse(localStorage.getItem('reincidencia_tokens') || '[]');
+    if (tokensUsados.indexOf(dados.token) >= 0) {
+      return { _jaRespondido: true, supervisor: dados.supervisor, mes: dados.mes };
+    }
+
+    return dados;
+  } catch(e) {
+    console.error('Erro ao decodificar:', e);
+    return null;
+  }
+}
+
+// =============================================
+// RENDERIZA FORMULÁRIO
+// =============================================
 function renderizarFormulario(dados) {
-  document.getElementById("hdr-supervisor").textContent = firstNameFromEmailOrName(dados.supervisor) || dados.supervisor;
-  document.getElementById("hdr-mes").textContent        = dados.mes;
-  document.getElementById("hdr-pendencias").textContent = dados.agentes.length;
-  document.getElementById("footer-total").textContent   = dados.agentes.length;
+  document.getElementById("hdr-supervisor").textContent =
+    firstNameFromEmailOrName((dados && dados.supervisor) || '') || '—';
+  document.getElementById("hdr-mes").textContent = (dados && dados.mes) || '—';
+
+  if (!dados) {
+    document.getElementById("hdr-pendencias").textContent = '0';
+    document.getElementById("conteudo").innerHTML =
+      '<div class="tela-central"><div class="icon">⚠️</div>' +
+      '<h2>Link inválido</h2>' +
+      '<p>Este link não contém dados válidos.<br/>Solicite um novo envio ao responsável.</p></div>';
+    return;
+  }
+
+  if (dados._jaRespondido) {
+    document.getElementById("hdr-pendencias").textContent = '0';
+    document.getElementById("conteudo").innerHTML =
+      '<div class="tela-central"><div class="icon">✅</div>' +
+      '<h2>Sem pendências!</h2>' +
+      '<p>Você já registrou suas ações para este mês.<br/>Obrigado pela participação!</p></div>';
+    return;
+  }
 
   var grupos = {};
   dados.agentes.forEach(function(a) {
-    if (!grupos[a.indicador]) grupos[a.indicador] = [];
-    grupos[a.indicador].push(a);
+    var ind = a.indicador;
+    if (!ind || ["CSAT","QUALIDADE","SCORE IVY","MÚLTIPLOS"].indexOf(ind) < 0) ind = 'MÚLTIPLOS';
+    if (!grupos[ind]) grupos[ind] = [];
+    grupos[ind].push(a);
   });
 
   var ordemGrupos = ["CSAT","QUALIDADE","SCORE IVY","MÚLTIPLOS"];
   var classGrupo  = { "CSAT":"csat","QUALIDADE":"qualidade","SCORE IVY":"score","MÚLTIPLOS":"multiplos" };
   var html = "";
+  var totalExibidos = 0;
 
   ordemGrupos.forEach(function(indicador) {
     if (!grupos[indicador]) return;
+    totalExibidos += grupos[indicador].length;
     var agentes = grupos[indicador];
     var cls = classGrupo[indicador] || "csat";
-    html += '<div class="grupo">';
-    html += '<div class="grupo-header ' + cls + '">' + indicador + ' (' + agentes.length + ')</div>';
-    html += '<table><thead><tr>';
-    html += '<th>ANALISTA</th><th>CÉLULA</th><th>INDICADOR REINCIDENTE</th>';
+    html += '<div class="grupo"><div class="grupo-header ' + cls + '">' + indicador + ' (' + agentes.length + ')</div>';
+    html += '<table><thead><tr><th>ANALISTA</th><th>CÉLULA</th><th>INDICADOR REINCIDENTE</th>';
     html += '<th>' + (indicador === "MÚLTIPLOS" ? "INDICADORES" : indicador) + '</th>';
-    html += '<th style="min-width:300px">AÇÃO</th>';
-    html += '</tr></thead><tbody>';
+    html += '<th style="min-width:300px">AÇÃO</th></tr></thead><tbody>';
     agentes.forEach(function(ag) {
       var tagClass     = ag.classificacao === "2M" ? "tag-2m" : ag.classificacao === "3M+" ? "tag-3m2" : "tag-3m";
       var val          = parseFloat(ag.metrica);
       var metricaClass = !isNaN(val) ? (val < 70 ? "baixo" : "medio") : "";
-      html += '<tr>';
-      html += '<td class="analista">' + ag.nome + '</td>';
-      html += '<td class="celula">'   + ag.celula + '</td>';
+      html += '<tr><td class="analista">' + ag.nome + '</td><td class="celula">' + ag.celula + '</td>';
       html += '<td class="indicador"><span class="' + tagClass + '">' + ag.classificacao + '</span></td>';
-      html += '<td class="metrica '  + metricaClass + '">' + ag.metrica + '</td>';
-      html += '<td><select class="select-acao" id="acao-' + ag.username + '" onchange="atualizarContador()">';
-      ACOES.forEach(function(a) {
-        html += '<option value="' + a.id + '">' + a.nome + '</option>';
-      });
+      html += '<td class="metrica ' + metricaClass + '">' + ag.metrica + '</td><td>';
+      html += '<select class="select-acao" id="acao-' + ag.username + '" onchange="atualizarContador()">';
+      ACOES.forEach(function(a) { html += '<option value="' + a.id + '">' + a.nome + '</option>'; });
       html += '</select></td></tr>';
     });
     html += '</tbody></table></div>';
   });
 
   document.getElementById("conteudo").innerHTML = html;
+  document.getElementById("hdr-pendencias").textContent = totalExibidos;
+  document.getElementById("footer-total").textContent   = totalExibidos;
+  document.getElementById("footer-bar").style.display   = "flex";
   atualizarContador();
 }
 
 function atualizarContador() {
-  var selects     = document.querySelectorAll(".select-acao");
-  var preenchidos = 0;
-  selects.forEach(function(s) { if (s.value !== "0") preenchidos++; });
-  document.getElementById("footer-preenchidos").textContent = preenchidos;
-  document.getElementById("btn-enviar").disabled = preenchidos < selects.length;
+  var selects = document.querySelectorAll(".select-acao");
+  var prench  = 0;
+  selects.forEach(function(s) { if (s.value !== "0") prench++; });
+  document.getElementById("footer-preenchidos").textContent = prench;
+  document.getElementById("btn-enviar").disabled = prench < selects.length;
 }
 
+// =============================================
+// ENVIO VIA APPS SCRIPT (server-side, sem CORS)
+// =============================================
 function validarEnviar() {
   var selects = document.querySelectorAll(".select-acao");
   var valido  = true;
@@ -202,13 +253,20 @@ function validarEnviar() {
     return;
   }
 
-  var btn      = document.getElementById("btn-enviar");
+  // Verifica se webapp_url está disponível nos dados
+  var webappUrl = DADOS_INJETADOS && DADOS_INJETADOS.webapp_url;
+  if (!webappUrl) {
+    alert("Erro de configuração: URL do servidor não encontrada no link.\nSolicite um novo link ao responsável.");
+    return;
+  }
+
+  var btn = document.getElementById("btn-enviar");
   btn.textContent = "Enviando...";
   btn.disabled    = true;
 
   var selections = DADOS_INJETADOS.agentes.map(function(ag) {
     var sel    = document.getElementById("acao-" + ag.username);
-    var acaoId = parseInt(sel.value);
+    var acaoId = sel ? parseInt(sel.value) : 0;
     var acao   = ACOES.find(function(a) { return a.id === acaoId; });
     return {
       username:      ag.username,
@@ -230,36 +288,52 @@ function validarEnviar() {
     selections:    selections
   };
 
-  fetch("https://api.github.com/repos/" + GITHUB_REPO + "/dispatches", {
-    method: "POST",
-    headers: {
-      "Authorization": "token " + GITHUB_PAT,
-      "Accept":        "application/vnd.github.v3+json",
-      "Content-Type":  "application/json"
-    },
-    body: JSON.stringify({
-      event_type:     "reincidencia_submission",
-      client_payload: payload
-    })
-  })
-  .then(function(res) {
-    if (res.status === 204) {
-      document.getElementById("conteudo").style.display   = "none";
-      document.getElementById("footer-bar").style.display = "none";
-      document.getElementById("alerta").style.display     = "none";
-      document.getElementById("sucesso").style.display    = "block";
-    } else {
-      throw new Error("Status: " + res.status);
-    }
-  })
-  .catch(function() {
+  var timeoutId = setTimeout(function() {
     btn.textContent = "Enviar final";
     btn.disabled    = false;
-    alert("Erro ao enviar. Tente novamente.");
-  });
+    alert("Tempo limite esgotado. Verifique sua conexão e tente novamente.");
+  }, 20000);
+
+  // Envia para o Apps Script via GET com payload codificado em base64
+  // Apps Script recebe via doGet(e) → e.parameter.payload
+  var payloadEncoded = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(payload)))));
+  var urlFinal = webappUrl + "?payload=" + payloadEncoded;
+
+  fetch(urlFinal, { method: "GET", mode: "no-cors" })
+    .then(function() {
+      clearTimeout(timeoutId);
+
+      // Com mode: no-cors não lemos a resposta,
+      // mas salvamos o token localmente para evitar reenvio
+      try {
+        var tokens = JSON.parse(localStorage.getItem("reincidencia_tokens") || "[]");
+        tokens.push(DADOS_INJETADOS.token);
+        localStorage.setItem("reincidencia_tokens", JSON.stringify(tokens));
+      } catch(e) {}
+
+      document.getElementById("conteudo").innerHTML =
+        '<div class="tela-central"><div class="icon">✅</div>' +
+        '<h2>Enviado com sucesso!</h2>' +
+        '<p>Suas respostas foram registradas para ' + (DADOS_INJETADOS.mes || '') + '.<br/>' +
+        'Você já pode fechar esta página.</p></div>';
+      document.getElementById("footer-bar").style.display = "none";
+      document.getElementById("alerta").style.display     = "none";
+    })
+    .catch(function(err) {
+      clearTimeout(timeoutId);
+      btn.textContent = "Enviar final";
+      btn.disabled    = false;
+      alert("Erro de conexão: " + err.message + "\nVerifique sua internet e tente novamente.");
+    });
 }
 
-window.onload = function() { renderizarFormulario(DADOS_INJETADOS); };
+// =============================================
+// INICIALIZAÇÃO
+// =============================================
+window.onload = function() {
+  DADOS_INJETADOS = lerDados();
+  renderizarFormulario(DADOS_INJETADOS);
+};
 </script>
 </body>
 </html>
